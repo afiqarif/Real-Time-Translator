@@ -18,18 +18,25 @@ The system is split into two distinct components to maximize efficiency:
 
 ```mermaid
 graph LR
-    User((User)) -- Speaks --> Client[Client PC]
-    Client -- 1. Local STT (FunASR) --> Client
-    Client -- 2. Text Stream --> Server[Cloud GPU Server]
+    User((User)) -- Speaks --> Client[Client App]
     
-    subgraph "Server (Lightning AI)"
-    Server -- 3. Translate (Groq/Llama3) --> Server
-    Server -- 4. Voice Clone (CosyVoice2) --> Server
+    subgraph "Client PC"
+        direction TB
+        Client
+        STT["1. Local STT (FunASR)"]
+        Client -- Raw Audio --> STT
     end
     
-    Server -- 5. Audio Stream --> Client
-    Client -- 6. Playback --> User
-
+    subgraph "Cloud Server (Lightning AI)"
+        direction TB
+        LLM["3. Translate (Groq/Llama3)"]
+        TTS["4. Voice Clone (CosyVoice2)"]
+        LLM --> TTS
+    end
+    
+    STT -- "2. Text Stream" --> LLM
+    TTS -- "5. Audio Stream" --> Client
+    Client -- "6. Playback" --> User
 ```
 
 ## 📂 Project Structure
