@@ -51,30 +51,28 @@ graph LR
 
 ## 🚀 Installation
 
-### 1. Client Setup (Your Laptop)
+### 1. Client Setup (PC / Laptop)
+*Compatible with Windows, macOS, and Linux.*
 
-*Requires: Microphone, Python 3.10*
+**Prerequisites:**
+* **Windows:** No extra steps needed (Drivers included).
+* **macOS:** `brew install portaudio`
+* **Linux (Ubuntu/Debian):** `sudo apt-get install python3-tk libportaudio2`
 
-1. Navigate to the client folder:
-```bash
-cd client
-
-```
-
-
-2. Create the Conda environment:
-```bash
-conda env create -f client_environment.yml
-conda activate translator-client
-
-```
-
-
-3. Run the application:
-```bash
-python main.py
-
-```
+**Installation:**
+1.  Navigate to the client folder:
+    ```bash
+    cd client
+    ```
+2.  Create the Conda environment:
+    ```bash
+    conda env create -f client_environment.yml
+    conda activate translator-client
+    ```
+3.  Run the application:
+    ```bash
+    python main.py
+    ```
 
 
 
