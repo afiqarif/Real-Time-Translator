@@ -1,5 +1,5 @@
 # main.py
-from gui import ProApp
+from src.gui import ProApp
 
 if __name__ == "__main__":
     app = ProApp()

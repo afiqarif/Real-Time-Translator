@@ -12,8 +12,8 @@ import re
 import os
 import struct
 from funasr import AutoModel
-from analytics import BenchmarkLogger
-from config import LANG_CODES
+from .analytics.logger import BenchmarkLogger
+from .config import LANG_CODES
 
 class AudioLogic:
     """
@@ -115,8 +115,13 @@ class AudioLogic:
 
             # 2. Lock Voice Logic
             if not self.voice_locked:
+                if len(text) < 4 or text.lower() in ["hmm", "okay", "yeah"]:
+                    self.gui.log("error", "❌ Voice not locked: Phrase too short. Speak a full sentence.")
+                    return
+                
                 self.gui.log("system", f"🎤 Locking Voice: '{text}'")
-                self.reference_audio, _ = sf.read(tf_name)
+                raw_audio, _ = sf.read(tf_name)
+                self.reference_audio = self.trim_silence(raw_audio)
                 self.reference_text = text
                 self.voice_locked = True
                 
@@ -254,3 +259,15 @@ class AudioLogic:
             except: pass
         stream.stop_stream()
         stream.close()
+    
+    def trim_silence(self, audio_data, threshold=0.01):
+        """Trims leading/trailing silence from numpy audio array."""
+        # Create a mask for where audio is louder than threshold
+        mask = np.abs(audio_data) > threshold
+        if not np.any(mask): return audio_data # Return original if all silence
+        
+        # Find start and end of actual sound
+        start = np.argmax(mask)
+        end = len(mask) - np.argmax(mask[::-1])
+        
+        return audio_data[start:end]

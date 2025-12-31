@@ -3,8 +3,8 @@ import customtkinter as ctk
 import threading
 import os
 import pyaudio
-from config import LANG_CODES, load_config, save_config
-from audio_logic import AudioLogic
+from .config import LANG_CODES, load_config, save_config
+from .audio_logic import AudioLogic
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
