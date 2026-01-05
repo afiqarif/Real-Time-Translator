@@ -20,15 +20,18 @@ class AudioLogic:
     Handles all audio processing: Mic input, Local STT, Network, and Playback.
     """
     def __init__(self, gui):
-        self.gui = gui  # Reference to the main window for logging
+        self.gui = gui
         self.running = False
         self.mic_paused = False
+        
+        # Voice Profile State
         self.voice_locked = False
+        self.reference_audio = None # Numpy Array (for editing)
+        self.locked_wav_bytes = None # Cached Bytes (for sending) ⚡
+        self.reference_text = ""
+        
         self.audio_queue = queue.Queue()
         self.p = pyaudio.PyAudio()
-        
-        self.reference_audio = None
-        self.reference_text = ""
         self.asr_model = None
         
         # Analytics
@@ -53,26 +56,63 @@ class AudioLogic:
             self.gui.log("error", f"❌ Model Load Failed: {e}")
             return False
 
+    def _cache_voice_profile(self, audio_data):
+        """Encodes the numpy array to WAV bytes ONCE to save CPU later."""
+        try:
+            buf = io.BytesIO()
+            sf.write(buf, audio_data, 16000, format='WAV')
+            self.locked_wav_bytes = buf.getvalue() # Store raw bytes
+            self.reference_audio = audio_data
+            return True
+        except Exception as e:
+            print(f"Error caching voice: {e}")
+            return False
+
+    # Inside audio_logic.py
+
     def save_profile(self, name):
-        if not self.voice_locked or self.reference_audio is None: return False
-        if not os.path.exists("voices"): os.makedirs("voices")
-        filename = f"voices/{name}.wav"
-        sf.write(filename, self.reference_audio, 16000)
-        return True
+        # 1. Sanitize the filename (remove weird characters)
+        clean_name = "".join([c for c in name if c.isalnum() or c in " _-"])
+        if not clean_name: 
+            return None, "Invalid filename."
+
+        # 2. Check if we actually have audio
+        if not self.voice_locked: 
+            return None, "Voice not locked yet."
+        if self.reference_audio is None: 
+            return None, "No audio data found in memory."
+
+        try:
+            # 3. Create folder if missing
+            if not os.path.exists("voices"): 
+                os.makedirs("voices")
+            
+            # 4. Save the file
+            filename = f"voices/{clean_name}.wav"
+            sf.write(filename, self.reference_audio, 16000)
+            
+            # 5. Return the ABSOLUTE path so you know exactly where it is
+            full_path = os.path.abspath(filename)
+            return full_path, None
+
+        except Exception as e:
+            return None, str(e)
 
     def load_profile(self, filename):
         try:
             path = f"voices/{filename}"
             if not os.path.exists(path): return False
             data, sr = sf.read(path)
-            self.reference_audio = data
-            self.reference_text = "Loaded from profile" 
+            
+            # Use our helper to cache it immediately
             self.voice_locked = True
+            self._cache_voice_profile(data)
+            self.reference_text = "Loaded from profile" 
             return True
         except: return False
 
     def play_audio(self, audio_data, sr):
-        """Plays a short sound (blocking) - used for beeps."""
+        """Plays a short sound (blocking)."""
         self.mic_paused = True
         self.gui.set_status("speaking")
         try:
@@ -100,6 +140,7 @@ class AudioLogic:
             server_target = target_lang_name
 
         try:
+            # Save Mic Input to Temp File (Needed for FunASR)
             audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
             sf.write(tf_name, audio_int16, 16000)
             tf.close()
@@ -113,38 +154,43 @@ class AudioLogic:
             
             if self.is_hallucination(text): return
 
-            # 2. Lock Voice Logic
+            # 2. Lock Voice Logic (If not locked)
             if not self.voice_locked:
                 if len(text) < 4 or text.lower() in ["hmm", "okay", "yeah"]:
-                    self.gui.log("error", "❌ Voice not locked: Phrase too short. Speak a full sentence.")
+                    self.gui.log("error", "❌ Voice not locked: Phrase too short.")
                     return
                 
                 self.gui.log("system", f"🎤 Locking Voice: '{text}'")
                 raw_audio, _ = sf.read(tf_name)
-                self.reference_audio = self.trim_silence(raw_audio)
+                
+                # Trim and Cache
+                trimmed = self.trim_silence(raw_audio)
+                self._cache_voice_profile(trimmed) # <--- Optimization Here
                 self.reference_text = text
                 self.voice_locked = True
                 
+                # Play Beep
                 fs = 44100
                 tone = (0.5 * np.sin(2*np.pi*np.arange(fs*0.2)*880/fs)).astype(np.float32)
                 self.play_audio(tone, fs)
                 self.gui.log("system", "✅ READY! Streaming Mode.")
                 return
 
-            # 3. Send to Server
+            # 3. Send to Server (Optimized)
             self.gui.log("user", f"({source_code}) {text}") 
             self.gui.set_status("translating")
             self.mic_paused = True 
             
-            ref_io = io.BytesIO()
-            sf.write(ref_io, self.reference_audio, 16000, format='WAV')
-            ref_io.seek(0)
+            # ⚡ USE CACHED BYTES (Zero CPU)
+            # We wrap the pre-calculated bytes in a IO buffer
+            ref_file_obj = io.BytesIO(self.locked_wav_bytes)
+            ref_file_obj.name = "ref.wav" # Requests needs a name hint
             
             try:
                 response = requests.post(
                     f"{url}/process_stream",
                     data={'text': text, 'target_lang': server_target, 'prompt_text': self.reference_text},
-                    files={'audio': ('ref.wav', ref_io, 'audio/wav')},
+                    files={'audio': ('ref.wav', ref_file_obj, 'audio/wav')},
                     stream=True, 
                     timeout=30
                 )
@@ -262,12 +308,8 @@ class AudioLogic:
     
     def trim_silence(self, audio_data, threshold=0.01):
         """Trims leading/trailing silence from numpy audio array."""
-        # Create a mask for where audio is louder than threshold
         mask = np.abs(audio_data) > threshold
-        if not np.any(mask): return audio_data # Return original if all silence
-        
-        # Find start and end of actual sound
+        if not np.any(mask): return audio_data
         start = np.argmax(mask)
         end = len(mask) - np.argmax(mask[::-1])
-        
         return audio_data[start:end]

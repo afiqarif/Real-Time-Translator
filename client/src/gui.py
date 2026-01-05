@@ -161,17 +161,30 @@ class ProApp(ctk.CTk):
             else:
                 self.log("error", "Failed to load voice file.")
 
+    # Inside gui.py
+
     def on_save_voice(self):
+        # Check lock status immediately
         if not self.logic.voice_locked:
-            self.log("error", "❌ No voice locked yet!")
+            self.log("error", "❌ Cannot Save: You haven't locked a voice yet.")
+            self.log("system", "👉 Tip: Speak a sentence first, wait for the 'Locking Voice' message.")
             return
+
         dialog = ctk.CTkInputDialog(text="Name this voice profile:", title="Save Voice")
         name = dialog.get_input()
-        if name and self.logic.save_profile(name):
-            self.log("system", f"💾 Saved: {name}")
-            self.refresh_voice_list()
-            self.voice_dropdown.set(f"{name}.wav")
-
+        
+        if name:
+            # Call the updated logic
+            saved_path, error = self.logic.save_profile(name)
+            
+            if saved_path:
+                self.log("system", f"✅ Saved successfully!")
+                self.log("system", f"📂 Location: {saved_path}") # <--- PRINTS LOCATION
+                self.refresh_voice_list()
+                self.voice_dropdown.set(os.path.basename(saved_path))
+            else:
+                self.log("error", f"❌ Save Failed: {error}")
+                
     # --- Thread-Safe Helpers ---
     def set_status(self, status):
         self.after(0, lambda: self.lbl_status.configure(text=f"Status: {status.upper()}"))
